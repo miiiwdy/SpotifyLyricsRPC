@@ -14,21 +14,48 @@ from winrt.windows.media.control import (
     GlobalSystemMediaTransportControlsSessionPlaybackStatus as PlaybackStatus,
 )
 
-def _load_env(path: str = ".env") -> None:
-    try:
-        with open(path) as f:
-            for line in f:
-                line = line.strip()
-                if line and not line.startswith("#") and "=" in line:
-                    key, _, val = line.partition("=")
-                    os.environ.setdefault(key.strip(), val.strip())
-    except FileNotFoundError:
-        pass
+config = "config.json"
 
+def load_discord_id() -> str:
+    if os.path.exists(config):
+        try:
+            with open(config, "r", encoding="utf-8") as f:
+                data = json.load(f)
 
-_load_env()
+            app_id = str(data.get("discord_app_id", "")).strip()
 
-DiscordID: str = os.environ["DISCORD_APP_ID"]
+            if app_id:
+                return app_id
+
+        except Exception:
+            pass
+
+    while True:
+        app_id = input("Enter Discord Application ID: ").strip()
+
+        if not app_id:
+            print("Application ID cannot be empty")
+            continue
+
+        if not app_id.isdigit():
+            print("Application ID must be numeric")
+            continue
+
+        break
+
+    with open(config, "w", encoding="utf-8") as f:
+        json.dump(
+            {
+                "discord_app_id": app_id
+            },
+            f,
+            indent=2
+        )
+        print("Config saved")
+
+    return app_id
+
+DiscordID = load_discord_id()
 Interval: float = 0.1
 LyricOffsetMilisecond: int = 700
 
@@ -168,7 +195,7 @@ class App:
             return
 
         if track.key != self._last_key:
-            print(f"Now playing: {track.label}")
+            print(f"playing: {track.label}")
             self._last_key = track.key
             self._last_lyric = ""
 
@@ -205,6 +232,7 @@ class App:
             )
         except Exception:
             self._rpc_ready = False
+            print("Discord RPC disconnected")
 
     def _clear(self) -> None:
         if self._rpc_ready:
@@ -212,6 +240,7 @@ class App:
                 self._rpc.clear()
             except Exception:
                 self._rpc_ready = False
+                print("Discord RPC disconnected")
 
     def _reconnect(self) -> None:
         if time.time() < self._next_retry:
