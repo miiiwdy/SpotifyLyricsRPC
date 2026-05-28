@@ -16,6 +16,14 @@ from winrt.windows.media.control import (
 
 config = "config.json"
 
+def watermark():
+    print("""
+====================================
+   SpotifyLyricsRPC by sn33vilz
+   github.com/miiiwdy
+====================================
+""")
+
 def load_discord_id() -> str:
     if os.path.exists(config):
         try:
@@ -172,6 +180,7 @@ class App:
         self._next_retry = 0.0
 
     def run(self) -> None:
+        watermark()
         try:
             while True:
                 self._tick()
@@ -226,7 +235,7 @@ class App:
                 details=track.label[:128],
                 state=state[:128],
                 large_image="spotify",
-                large_text="Spotify",
+                large_text="SpotifyLyricsRPC by sneevilz",
                 start=now - track.position_ms // 1_000,
                 end=now + (track.duration_ms - track.position_ms) // 1_000,
             )
