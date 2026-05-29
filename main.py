@@ -2,6 +2,7 @@ import asyncio
 import json
 import os
 import time
+import re
 import urllib.parse
 import urllib.request
 from bisect import bisect_right
@@ -108,6 +109,10 @@ async def current_track() -> Optional[Track]:
         if session is None:
             return None
 
+        app_id = session.source_app_user_model_id.lower()
+        if "spotify" not in app_id:
+            return None
+
         props = await session.try_get_media_properties_async()
         timeline = session.get_timeline_properties()
         playback = session.get_playback_info()
@@ -127,22 +132,30 @@ async def current_track() -> Optional[Track]:
     except Exception:
         return None
 
-
 def fetch_lyrics(title: str, artist: str) -> Optional[list[LyricLine]]:
     params = urllib.parse.urlencode({"track_name": title, "artist_name": artist})
-    try:
-        with urllib.request.urlopen(
-            f"https://lrclib.net/api/get?{params}", timeout=5
-        ) as resp:
-            raw = json.loads(resp.read()).get("syncedLyrics")
-    except Exception:
+    url = f"https://lrclib.net/api/get?{params}"
+    print(f"[INFO] fetching: {url}")
+ 
+    for attempt in range(3):
+        try:
+            with urllib.request.urlopen(url, timeout=30) as resp:
+                data = json.loads(resp.read())
+                raw = data.get("syncedLyrics")
+                print(f"[INFO] fetch success")
+                break
+        except Exception as e:
+            print(f"[ATTEMPT {attempt + 1}] failed: {e}")
+            if attempt < 2:
+                time.sleep(2)
+    else:
         return None
-
+ 
     if not raw:
         return None
-
+ 
     lines: list[LyricLine] = []
-
+ 
     for line in raw.splitlines():
         if not line.startswith("["):
             continue
@@ -156,9 +169,8 @@ def fetch_lyrics(title: str, artist: str) -> Optional[list[LyricLine]]:
             lines.append(LyricLine(time_ms, text))
         except ValueError:
             continue
-
+ 
     return sorted(lines, key=lambda x: x.time_ms)
-
 
 def active_line(lyrics: list[LyricLine], position_ms: int) -> str:
     timestamps = [l.time_ms for l in lyrics]
@@ -198,7 +210,11 @@ class App:
             self._last_lyric = ""
             time.sleep(1)
             return
-
+        
+        if not track.artist or track.artist.lower() == "spotify" or track.artist.lower() == "topsify":
+            time.sleep(1)
+            return
+        
         if not track.playing:
             time.sleep(0.5)
             return
@@ -223,6 +239,7 @@ class App:
             self._last_lyric = lyric
 
         time.sleep(Interval)
+    
 
     def _update(self, track: Track, state: str) -> None:
         if not self._rpc_ready:
@@ -238,6 +255,9 @@ class App:
                 large_text="SpotifyLyricsRPC by sneevilz",
                 start=now - track.position_ms // 1_000,
                 end=now + (track.duration_ms - track.position_ms) // 1_000,
+                buttons=[
+                    {"label": "Listen on Spotify", "url": self._get_spotify_search_url(track)},
+                ]
             )
         except Exception:
             self._rpc_ready = False
@@ -262,6 +282,10 @@ class App:
             self._rpc_ready = True
         except Exception:
             pass
+    
+    def _get_spotify_search_url(self, track: Track) -> str:
+        query = urllib.parse.quote(f"{track.title} {track.artist}")
+        return f"https://open.spotify.com/search/{query}"
 
     def _shutdown(self) -> None:
         self._clear()
